@@ -1,6 +1,6 @@
 // servidor.js
+
 const express = require('express');
-// const bodyParser = require('body-parser'); // Não é mais necessário com Express moderno
 const cors = require('cors');
 require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -8,32 +8,41 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const app = express();
 
 // Middlewares
-// SUGESTÃO: Usar o middleware embutido do Express
-app.use(express.json()); 
-app.use(express.static('public'));
+app.use(express.json());
 app.use(cors());
 
-// Inicializa Gemini
+// Inicializa o Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Rota para gerar recomendação
+// Define o modelo que será usado de forma global
+const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
+
+// --- ALTERAÇÃO PRINCIPAL ---
+// A rota agora lida com um histórico de chat para manter o contexto.
 app.post('/send-msg', async (req, res) => {
-  // Adiciona uma verificação para o caso do prompt vir vazio
-  if (!req.body || !req.body.prompt) {
-    return res.status(400).json({ error: 'O "prompt" é obrigatório no corpo da requisição.' });
+  // O frontend agora enviará o histórico (history) e a nova mensagem (newMessage).
+  const { history, newMessage } = req.body;
+
+  // Validação da entrada
+  if (!newMessage) {
+    return res.status(400).json({ error: 'A nova mensagem (newMessage) é obrigatória.' });
   }
 
-  const { prompt } = req.body;
-
   try {
-    // CORREÇÃO E SUGESTÃO: Usar o nome correto do modelo, de preferência com "-latest"
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
+    // Inicia um chat com o histórico fornecido pela requisição.
+    // Isso dá à IA a "memória" de toda a conversa anterior.
+    const chat = model.startChat({
+      history: history || [], // Usa o histórico enviado ou um array vazio se for a primeira mensagem.
+    });
 
-    const result = await model.generateContent(prompt);
+    // Envia a nova mensagem do usuário para o chat que já tem o contexto.
+    const result = await chat.sendMessage(newMessage);
     const response = result.response;
     const msg = response.text();
 
+    // Retorna apenas a nova mensagem da IA.
     res.json({ msg });
+
   } catch (err) {
     console.error("Erro na API do Gemini:", err);
     res.status(500).json({ error: 'Erro ao se comunicar com a inteligência artificial.' });
