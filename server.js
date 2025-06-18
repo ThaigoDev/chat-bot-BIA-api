@@ -1,35 +1,36 @@
 // servidor.js
 const express = require('express');
-// const bodyParser = require('body-parser'); // Não é mais necessário com Express moderno
 const cors = require('cors');
 require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 
-// Middlewares
-// SUGESTÃO: Usar o middleware embutido do Express
-app.use(express.json()); 
-app.use(express.static('public'));
+app.use(express.json());
 app.use(cors());
 
-// Inicializa Gemini
+// Inicializa o Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// Define o modelo que será usado
+const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
 
-// Rota para gerar recomendação
+// ALTERAÇÃO PRINCIPAL: A rota agora lida com um histórico de chat
 app.post('/send-msg', async (req, res) => {
-  // Adiciona uma verificação para o caso do prompt vir vazio
-  if (!req.body || !req.body.prompt) {
-    return res.status(400).json({ error: 'O "prompt" é obrigatório no corpo da requisição.' });
+  // O frontend agora enviará o histórico e a nova mensagem do usuário
+  const { history, newMessage } = req.body;
+
+  if (!newMessage) {
+    return res.status(400).json({ error: 'A nova mensagem (newMessage) é obrigatória.' });
   }
 
-  const { prompt } = req.body;
-
   try {
-    // CORREÇÃO E SUGESTÃO: Usar o nome correto do modelo, de preferência com "-latest"
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
+    // Inicia um chat com o histórico fornecido
+    const chat = model.startChat({
+      history: history || [], // Usa o histórico enviado ou um array vazio
+    });
 
-    const result = await model.generateContent(prompt);
+    // Envia a nova mensagem do usuário para o chat
+    const result = await chat.sendMessage(newMessage);
     const response = result.response;
     const msg = response.text();
 
@@ -40,7 +41,6 @@ app.post('/send-msg', async (req, res) => {
   }
 });
 
-// Inicia o servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
