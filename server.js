@@ -1,25 +1,33 @@
 // =================================================================
-// SERVIDOR.JS - Backend para Chatbot com API OpenAI (Chat e Voz)
+// SERVIDOR.JS - Backend para Chatbot com API OpenAI (Chat, Voz e Transcrição)
 // =================================================================
 
 // Importação dos módulos necessários
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config(); // Carrega as variáveis de ambiente do arquivo .env
+require('dotenv').config();
 const OpenAI = require('openai');
+const multer = require('multer'); // --- NOVO: Para upload de arquivos
+const fs = require('fs');         // --- NOVO: Para manipulação de arquivos
+const os = require('os');         // --- NOVO: Para diretório temporário
+const path = require('path');     // --- NOVO: Para caminhos de arquivo
 
 // --- Validação da Chave da API na inicialização ---
 if (!process.env.OPENAI_API_KEY) {
     console.error("ERRO CRÍTICO: A variável de ambiente OPENAI_API_KEY não foi definida.");
     console.error("Por favor, crie um arquivo .env e adicione a linha: OPENAI_API_KEY=SUA_CHAVE_AQUI");
-    process.exit(1); // Encerra o processo se a chave não existir
+    process.exit(1);
 }
 
 const app = express();
 
+// --- NOVO: Configuração do Multer para salvar arquivos em memória ---
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
+
 // Middlewares
-app.use(express.json()); // Permite que o servidor entenda JSON
-app.use(cors()); // Habilita o Cross-Origin Resource Sharing
+app.use(express.json());
+app.use(cors());
 
 // --- CONFIGURAÇÃO DA API DA OPENAI ---
 const openai = new OpenAI({
@@ -28,6 +36,7 @@ const openai = new OpenAI({
 
 // --- FUNÇÃO COM LÓGICA DE RETENTATIVA (BACKOFF EXPONENCIAL) ---
 async function getBotResponseWithRetry(history, newMessage) {
+    // (Esta função permanece inalterada)
     const maxRetries = 3;
     let delay = 1000;
 
@@ -69,6 +78,7 @@ async function getBotResponseWithRetry(history, newMessage) {
 
 // --- ROTA PRINCIPAL DA API DE CHAT ---
 app.post('/send-msg', async (req, res) => {
+    // (Esta rota permanece inalterada)
     const { history, newMessage } = req.body;
 
     if (!newMessage || typeof newMessage !== 'string' || newMessage.trim() === '') {
@@ -87,8 +97,9 @@ app.post('/send-msg', async (req, res) => {
     }
 });
 
-// --- NOVA ROTA PARA GERAR ÁUDIO (TEXT-TO-SPEECH) ---
+// --- ROTA PARA GERAR ÁUDIO (TEXT-TO-SPEECH) ---
 app.post('/generate-speech', async (req, res) => {
+    // (Esta rota permanece inalterada)
     const { text } = req.body;
 
     if (!text || typeof text !== 'string' || text.trim() === '') {
@@ -99,26 +110,55 @@ app.post('/generate-speech', async (req, res) => {
         console.log("Gerando áudio para o texto:", text.substring(0, 50) + "...");
         const mp3 = await openai.audio.speech.create({
             model: "tts-1",
-            voice: "charlie",
+            voice: "alloy", // Voz 'alloy' é uma boa opção
             input: text,
         });
-
-        // ======================= CORREÇÃO AQUI =======================
-        // A nova versão da biblioteca retorna um objeto que pode ser convertido
-        // para um Buffer. Não usamos mais o .pipe() diretamente dessa forma.
         
         const buffer = Buffer.from(await mp3.arrayBuffer());
         
         res.setHeader('Content-Type', 'audio/mpeg');
         res.send(buffer);
-        // ===================== FIM DA CORREÇÃO =====================
 
     } catch (err) {
-        // Agora vamos logar o erro completo para ter mais detalhes
         console.error("ERRO AO GERAR ÁUDIO COM A API DA OPENAI:", err);
         res.status(500).json({ error: 'Falha ao gerar o áudio da resposta.' });
     }
 });
+
+
+// --- NOVO ENDPOINT PARA TRANSCRIÇÃO DE ÁUDIO (SPEECH-TO-TEXT) ---
+app.post('/transcribe-audio', upload.single('audio'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: "Nenhum arquivo de áudio recebido." });
+    }
+
+    const tempFilePath = path.join(os.tmpdir(), `audio-${Date.now()}.webm`);
+    
+    try {
+        // Salva o buffer do áudio em um arquivo temporário, pois a API Whisper precisa de um caminho de arquivo
+        fs.writeFileSync(tempFilePath, req.file.buffer);
+
+        console.log("Transcrevendo áudio...");
+        const transcription = await openai.audio.transcriptions.create({
+            file: fs.createReadStream(tempFilePath),
+            model: "whisper-1", // O modelo de transcrição da OpenAI
+            language: "pt" // Especifica o idioma para maior precisão
+        });
+        
+        console.log("Transcrição recebida:", transcription.text);
+        res.json({ transcript: transcription.text });
+
+    } catch (err) {
+        console.error("ERRO AO TRANSCREVER ÁUDIO COM WHISPER:", err);
+        res.status(500).json({ error: "Falha ao processar o áudio." });
+    } finally {
+        // Apaga o arquivo temporário após o uso
+        if (fs.existsSync(tempFilePath)) {
+            fs.unlinkSync(tempFilePath);
+        }
+    }
+});
+
 
 // --- INICIA O SERVIDOR ---
 const PORT = process.env.PORT || 3000;
