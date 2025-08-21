@@ -6,7 +6,7 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config(); // Carrega as variáveis de ambiente do arquivo .env
-const OpenAI = require('openai'); // Substituído pelo SDK da OpenAI
+const OpenAI = require('openai');
 
 // --- Validação da Chave da API na inicialização ---
 if (!process.env.OPENAI_API_KEY) {
@@ -28,33 +28,28 @@ const openai = new OpenAI({
 
 // --- FUNÇÃO COM LÓGICA DE RETENTATIVA (BACKOFF EXPONENCIAL) ---
 async function getBotResponseWithRetry(history, newMessage) {
-    const maxRetries = 3; // Tentar no máximo 3 vezes
-    let delay = 1000;     // Começar com 1 segundo de espera
+    const maxRetries = 3;
+    let delay = 1000;
 
-    // Adapta o formato do histórico para o formato da OpenAI.
     const messages = [
         ...history.map(item => ({
-            role: item.role === 'model' ? 'assistant' : 'user', // Converte 'model' para 'assistant'
-            content: item.parts[0].text // Extrai o texto
+            role: item.role === 'model' ? 'assistant' : 'user',
+            content: item.parts[0].text
         })),
-        { role: 'user', content: newMessage } // Adiciona a nova mensagem do usuário
+        { role: 'user', content: newMessage }
     ];
-
 
     for (let i = 0; i < maxRetries; i++) {
         try {
             const chatCompletion = await openai.chat.completions.create({
-                model: "gpt-3.5-turbo", // ou "gpt-4", "gpt-4o", etc.
+                model: "gpt-3.5-turbo",
                 messages: messages,
             });
 
             const responseText = chatCompletion.choices[0]?.message?.content;
-
             if (!responseText) {
                 throw new Error("A resposta da IA está vazia ou em um formato inválido.");
             }
-
-            // Sucesso! Retorna a mensagem.
             return responseText;
 
         } catch (err) {
@@ -64,14 +59,13 @@ async function getBotResponseWithRetry(history, newMessage) {
             if (isRetryableError && i < maxRetries - 1) {
                 console.warn(`API retornou status ${status} (tentativa ${i + 1}/${maxRetries}). Tentando novamente em ${delay / 1000}s...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
-                delay *= 2; // Dobra o tempo de espera
+                delay *= 2;
             } else {
                 throw err;
             }
         }
     }
 }
-
 
 // --- ROTA PRINCIPAL DA API DE CHAT ---
 app.post('/send-msg', async (req, res) => {
@@ -84,26 +78,16 @@ app.post('/send-msg', async (req, res) => {
     try {
         const msg = await getBotResponseWithRetry(history || [], newMessage);
         res.json({ msg });
-
     } catch (err) {
-        console.error("-----------------------------------------");
-        console.error("ERRO AO PROCESSAR REQUISIÇÃO PARA O CHATGPT (APÓS TODAS AS TENTATIVAS):");
-        console.error("Mensagem que causou o erro:", newMessage);
-        console.error("Detalhes do Erro:", err.status, err.message);
-        console.error("-----------------------------------------");
-
+        console.error("ERRO AO PROCESSAR REQUISIÇÃO PARA O CHATGPT:", err.status, err.message);
         if (err.status === 429) {
-            return res.status(429).json({ error: 'Limite de uso da API atingido. Verifique seu plano na OpenAI ou tente novamente mais tarde.' });
+            return res.status(429).json({ error: 'Limite de uso da API atingido. Verifique seu plano na OpenAI.' });
         }
-        
-        res.status(500).json({ error: 'O assistente está com dificuldades técnicas. Por favor, tente novamente mais tarde.' });
+        res.status(500).json({ error: 'O assistente está com dificuldades técnicas. Tente novamente mais tarde.' });
     }
 });
 
-
-// =================================================================
-// NOVA ROTA PARA GERAR ÁUDIO (TEXT-TO-SPEECH)
-// =================================================================
+// --- NOVA ROTA PARA GERAR ÁUDIO (TEXT-TO-SPEECH) ---
 app.post('/generate-speech', async (req, res) => {
     const { text } = req.body;
 
@@ -113,29 +97,18 @@ app.post('/generate-speech', async (req, res) => {
 
     try {
         console.log("Gerando áudio para o texto:", text.substring(0, 50) + "...");
-
-        // Faz a chamada para a API de TTS da OpenAI
         const mp3 = await openai.audio.speech.create({
-            model: "tts-1",       // "tts-1" é mais rápido, "tts-1-hd" tem mais qualidade
-            voice: "nova",        // Vozes disponíveis: alloy, echo, fable, onyx, nova, shimmer
+            model: "tts-1",
+            voice: "nova",
             input: text,
         });
-
-        // Define o cabeçalho para indicar que estamos enviando um arquivo MP3
         res.setHeader('Content-Type', 'audio/mpeg');
-
-        // Envia o áudio como uma stream diretamente para o cliente
         mp3.body.pipe(res);
-
     } catch (err) {
-        console.error("-----------------------------------------");
-        console.error("ERRO AO GERAR ÁUDIO COM A API DA OPENAI:");
-        console.error("Detalhes do Erro:", err.status, err.message);
-        console.error("-----------------------------------------");
+        console.error("ERRO AO GERAR ÁUDIO COM A API DA OPENAI:", err.status, err.message);
         res.status(500).json({ error: 'Falha ao gerar o áudio da resposta.' });
     }
 });
-
 
 // --- INICIA O SERVIDOR ---
 const PORT = process.env.PORT || 3000;
