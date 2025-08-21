@@ -110,7 +110,7 @@ app.post('/generate-speech', async (req, res) => {
         console.log("Gerando áudio para o texto:", text.substring(0, 50) + "...");
         const mp3 = await openai.audio.speech.create({
             model: "tts-1",
-            voice: "alloy", // Voz 'alloy' é uma boa opção
+            voice: "echo", // Voz 'alloy' é uma boa opção
             input: text,
         });
         
