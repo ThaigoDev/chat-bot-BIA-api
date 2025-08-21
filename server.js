@@ -102,10 +102,20 @@ app.post('/generate-speech', async (req, res) => {
             voice: "nova",
             input: text,
         });
+
+        // ======================= CORREÇÃO AQUI =======================
+        // A nova versão da biblioteca retorna um objeto que pode ser convertido
+        // para um Buffer. Não usamos mais o .pipe() diretamente dessa forma.
+        
+        const buffer = Buffer.from(await mp3.arrayBuffer());
+        
         res.setHeader('Content-Type', 'audio/mpeg');
-        mp3.body.pipe(res);
+        res.send(buffer);
+        // ===================== FIM DA CORREÇÃO =====================
+
     } catch (err) {
-        console.error("ERRO AO GERAR ÁUDIO COM A API DA OPENAI:", err.status, err.message);
+        // Agora vamos logar o erro completo para ter mais detalhes
+        console.error("ERRO AO GERAR ÁUDIO COM A API DA OPENAI:", err);
         res.status(500).json({ error: 'Falha ao gerar o áudio da resposta.' });
     }
 });
