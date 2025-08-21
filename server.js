@@ -51,7 +51,7 @@ async function getBotResponseWithRetry(history, newMessage) {
     for (let i = 0; i < maxRetries; i++) {
         try {
             const chatCompletion = await openai.chat.completions.create({
-                model: "gpt-3.5-turbo",
+                model: "gpt-4o",
                 messages: messages,
             });
 
